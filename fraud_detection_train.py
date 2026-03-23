@@ -15,10 +15,8 @@ from sklearn.metrics import (average_precision_score, classification_report,
 warnings.filterwarnings('ignore')
 
 def run_fraud_detection():
-    # 1. Load Data
     df = pd.read_csv('AIML Dataset.csv')
 
-    # 2. Cleaning & Feature Engineering
     if 'isFraud' in df.columns:
         df.dropna(subset=['isFraud'], inplace=True)
 
@@ -26,17 +24,14 @@ def run_fraud_detection():
     if cols_to_drop:
         df = df.drop(columns=cols_to_drop)
 
-    # Creating balance difference features
     for prefix in ['Org', 'Dest']:
         old_col, new_col = f'oldbalance{prefix}', f'newbalance{prefix}'
         if old_col in df.columns and new_col in df.columns:
             df[f'balenceDiff{prefix}'] = df[old_col] - df[new_col]
 
-    # New fractional change feature
     epsilon = 1e-9 
     df['fractional_change_org'] = (df['oldbalanceOrg'] - df['newbalanceOrig']) / (df['oldbalanceOrg'] + epsilon)
 
-    # 3. Defining Features
     categorical = ['type'] if 'type' in df.columns else []
     numeric = [c for c in ['amount', 'oldbalanceOrg', 'newbalanceOrig', 'oldbalanceDest', 
                            'newbalanceDest', 'balenceDiffOrg', 'balenceDiffDest', 'fractional_change_org'] if c in df.columns]
@@ -46,7 +41,6 @@ def run_fraud_detection():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
-    # 4. Pipeline Setup
     preprocessor = ColumnTransformer(
         transformers=[
             ('num', StandardScaler(), numeric),
@@ -58,7 +52,6 @@ def run_fraud_detection():
     neg, pos = (y_train == 0).sum(), (y_train == 1).sum()
     scale_pos_weight = neg / pos if pos > 0 else 1.0
 
-    # XGBoost internal parallelization is safe on Windows
     xgb = XGBClassifier(
         n_estimators=500,
         max_depth=4,
@@ -73,17 +66,14 @@ def run_fraud_detection():
 
     pipeline = Pipeline([('prep', preprocessor), ('clf', xgb)])
 
-    # 5. CROSS VALIDATION - CRITICAL CHANGE FOR WINDOWS
     print('Running Stratified 5-Fold Cross-Validation...')
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    
-    # n_jobs must be 1 here to avoid the _posixsubprocess error
+
     cv_scores = cross_val_score(pipeline, X, y, cv=skf, scoring='average_precision', n_jobs=1)
 
     print(f'Cross-Validated AUPRC: {cv_scores.mean():.4f} (+/- {cv_scores.std():.4f})')
     print('-' * 30)
 
-    # 6. Final Fit and Metrics
     print('Training final XGBoost pipeline...')
     pipeline.fit(X_train, y_train)
 
